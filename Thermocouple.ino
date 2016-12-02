@@ -9,10 +9,13 @@
 #include <SPI.h>
 #include <WiFi101.h>
 #include <Adafruit_MAX31856.h>
+#include <ArduinoJson.h>
 
 char ssid[] = "Baer";
 char pass[] = "antelope";
-int readings[5];
+StaticJsonBuffer<200> jsonBuffer;
+JsonArray& readings = jsonBuffer.createArray();
+int batchSize = 5;
 int nextIndex = 0;
 int readingInterval = 1000;
 bool putPending = false;
@@ -107,54 +110,60 @@ void readThermoCouple() {
     if (fault & MAX31856_FAULT_OVUV)    Serial.println("Over/Under Voltage Fault");
     if (fault & MAX31856_FAULT_OPEN)    Serial.println("Thermocouple Open Fault");
   }
-  readings[nextIndex] = max.readThermocoupleTemperature();
+
+  JsonObject& reading = jsonBuffer.createObject();
+  reading["thermocoupleTemp"] = max.readThermocoupleTemperature();
+  reading["coldJunctionTemp"] = max.readCJTemperature();
+  reading["time"] = 1351824120; //TODO: Get a real timestamp
+  readings.add(reading);
   nextIndex++;
 }
 
 void publishReadingsIfReady() {
-  int count = sizeof(readings)/sizeof(int);
-  if(nextIndex == count) {
+  if(nextIndex == batchSize) {
     Serial.print("\nPublishing ");
-    Serial.print(count);
+    Serial.print(batchSize);
     Serial.print(" readings.");
-    nextIndex = 0;
     sendReadings();
+    nextIndex = 0;
+    clearReadings();
+  }
+}
+
+void clearReadings() {
+  for(int i = 0; i < batchSize; i++) {
+    readings.removeAt(0);
   }
 }
 
 void readClientData() {
     // if there are incoming bytes available
   // from the server, read them and print them:
-  bool responseProcessed = client.available();
   while (client.available()) {
     char c = client.read();
     Serial.write(c);
   }
-
-  // if the server's disconnected, stop the client:
-  if (responseProcessed && !client.connected()) {
-    Serial.println();
-    Serial.println("disconnecting from server.");
-    putPending = false;
-    client.stop();
-  }
 }
 
 void sendReadings() {
-  if(!putPending) {
-    Serial.println("\nStarting connection to server...");
-    // if you get a connection, report back via serial:
-    if (client.connect(server, 9000)) {
-      Serial.println("connected to server");
-      //-----
-      client.println("POST /hob/bubba/put?reading=999 HTTP/1.1");
-      client.println("Host: 192.168.0.20");
-      client.println("User-Agent: ArduinoWiFi/1.1");
-      client.println("Connection: close");
-      client.println();
-      //-----
-      putPending = true;
-    }
+  client.stop();
+  Serial.println("\nStarting connection to server...");
+  // if you get a connection, report back via serial:
+  if (client.connect(server, 9000)) {
+    Serial.println("connected to server");
+
+    String readingsString;
+    readings.printTo(readingsString);
+
+    Serial.println("Sending json: " + readingsString);
+
+    client.println("POST /hob/bubba/put HTTP/1.1");
+    client.println("Host: 192.168.0.20");
+    client.println("Connection: close");
+    client.println("Content-Type: application/json");
+    client.print("Content-Length: "); client.println(readingsString.length());
+    client.println();
+    client.println(readingsString);
   }else{
     Serial.println("\nSkipping send.  Put request already pending.");
   }
