@@ -11,15 +11,16 @@
 #include <Adafruit_MAX31856.h>
 #include <ArduinoJson.h>
 
-char ssid[] = "Baer";
-char pass[] = "antelope";
-StaticJsonBuffer<200> jsonBuffer;
-JsonArray& readings = jsonBuffer.createArray();
-int batchSize = 5;
-int nextIndex = 0;
-int readingInterval = 1000;
-bool putPending = false;
+const char ssid[] = "Baer";
+const char pass[] = "antelope";
+const int batchSize = 5;
+const int readingInterval = 1000;
 
+float thermocoupleTemps[batchSize];
+float coldJunctionTemps[batchSize];
+long timeStamps[batchSize];
+
+int nextIndex = 0;
 int status = WL_IDLE_STATUS;
 // if you don't want to use DNS (and reduce your sketch size)
 // use the numeric IP instead of the name for the server:
@@ -111,11 +112,9 @@ void readThermoCouple() {
     if (fault & MAX31856_FAULT_OPEN)    Serial.println("Thermocouple Open Fault");
   }
 
-  JsonObject& reading = jsonBuffer.createObject();
-  reading["thermocoupleTemp"] = max.readThermocoupleTemperature();
-  reading["coldJunctionTemp"] = max.readCJTemperature();
-  reading["time"] = 1351824120; //TODO: Get a real timestamp
-  readings.add(reading);
+  thermocoupleTemps[nextIndex] = max.readThermocoupleTemperature();
+  coldJunctionTemps[nextIndex] = max.readCJTemperature();
+  timeStamps[nextIndex] = 123456789;
   nextIndex++;
 }
 
@@ -126,13 +125,6 @@ void publishReadingsIfReady() {
     Serial.print(" readings.");
     sendReadings();
     nextIndex = 0;
-    clearReadings();
-  }
-}
-
-void clearReadings() {
-  for(int i = 0; i < batchSize; i++) {
-    readings.removeAt(0);
   }
 }
 
@@ -152,9 +144,18 @@ void sendReadings() {
   if (client.connect(server, 9000)) {
     Serial.println("connected to server");
 
-    String readingsString;
-    readings.printTo(readingsString);
+    StaticJsonBuffer<200> jsonBuffer;
+    JsonArray& jsonReadings = jsonBuffer.createArray();
+    for(int i=0; i<batchSize; i++) {
+      JsonObject& reading = jsonBuffer.createObject();
+      reading["thermocoupleTemp"] = thermocoupleTemps[i];
+      reading["coldJunctionTemp"] = coldJunctionTemps[i];
+      reading["time"] = timeStamps[i];
+      jsonReadings.add(reading);
+    }
 
+    String readingsString;
+    jsonReadings.printTo(readingsString);
     Serial.println("Sending json: " + readingsString);
 
     client.println("POST /hob/bubba/put HTTP/1.1");
