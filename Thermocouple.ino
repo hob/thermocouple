@@ -15,6 +15,7 @@ char pass[] = "antelope";
 int readings[5];
 int nextIndex = 0;
 int readingInterval = 1000;
+bool putPending = false;
 
 int status = WL_IDLE_STATUS;
 // if you don't want to use DNS (and reduce your sketch size)
@@ -45,7 +46,7 @@ void loop() {
 
 void establishSerialConnection() {
   //Initialize serial and wait for port to open:
-  Serial.begin(9600);
+  Serial.begin(115200);
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
   }  
@@ -91,7 +92,7 @@ void startThermocouple() {
 
 void readThermoCouple() {
   Serial.print("Taking Reading Number ");
-  Serial.println(nextIndex);
+  Serial.println(nextIndex + 1);
   Serial.print("Cold Junction Temp: "); Serial.println(max.readCJTemperature());
   Serial.print("Thermocouple Temp: "); Serial.println(max.readThermocoupleTemperature());
   // Check and print any faults
@@ -111,7 +112,11 @@ void readThermoCouple() {
 }
 
 void publishReadingsIfReady() {
-  if(nextIndex == sizeof(readings)/sizeof(int)) {
+  int count = sizeof(readings)/sizeof(int);
+  if(nextIndex == count) {
+    Serial.print("\nPublishing ");
+    Serial.print(count);
+    Serial.print(" readings.");
     nextIndex = 0;
     sendReadings();
   }
@@ -130,21 +135,28 @@ void readClientData() {
   if (responseProcessed && !client.connected()) {
     Serial.println();
     Serial.println("disconnecting from server.");
+    putPending = false;
     client.stop();
   }
 }
 
 void sendReadings() {
+  if(!putPending) {
     Serial.println("\nStarting connection to server...");
-  // if you get a connection, report back via serial:
-  if (client.connect(server, 9000)) {
-    Serial.println("connected to server");
-    // Make a HTTP request:
-    client.print("POST /hob/bubba/put?reading=");
-    client.println("READINGS_HERE");
-    client.println("Host: 192.168.0.20:9000");
-    client.println("Connection: close");
-    client.println();
+    // if you get a connection, report back via serial:
+    if (client.connect(server, 9000)) {
+      Serial.println("connected to server");
+      //-----
+      client.println("POST /hob/bubba/put?reading=999 HTTP/1.1");
+      client.println("Host: 192.168.0.20");
+      client.println("User-Agent: ArduinoWiFi/1.1");
+      client.println("Connection: close");
+      client.println();
+      //-----
+      putPending = true;
+    }
+  }else{
+    Serial.println("\nSkipping send.  Put request already pending.");
   }
 }
 
