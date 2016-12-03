@@ -14,7 +14,7 @@
 const char ssid[] = "Baer";
 const char pass[] = "antelope";
 const int batchSize = 5;
-const int readingInterval = 1000;
+const int readingInterval = 30000;
 
 float thermocoupleTemps[batchSize];
 float coldJunctionTemps[batchSize];
@@ -144,13 +144,13 @@ void sendReadings() {
   if (client.connect(server, 9000)) {
     Serial.println("connected to server");
 
-    StaticJsonBuffer<200> jsonBuffer;
+    StaticJsonBuffer<500> jsonBuffer;
     JsonArray& jsonReadings = jsonBuffer.createArray();
     for(int i=0; i<batchSize; i++) {
       JsonObject& reading = jsonBuffer.createObject();
-      reading["thermocoupleTemp"] = thermocoupleTemps[i];
-      reading["coldJunctionTemp"] = coldJunctionTemps[i];
-      reading["time"] = timeStamps[i];
+      reading["t"] = thermocoupleTemps[i];
+      reading["c"] = coldJunctionTemps[i];
+      reading["d"] = timeStamps[i];
       jsonReadings.add(reading);
     }
 
