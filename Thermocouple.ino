@@ -8,6 +8,7 @@
 
 #include <SPI.h>
 #include <WiFi101.h>
+#include <RTCZero.h>
 #include <Adafruit_MAX31856.h>
 #include <ArduinoJson.h>
 
@@ -16,6 +17,7 @@ const char pass[] = "antelope";
 const int batchSize = 5;
 const int readingInterval = 30000;
 
+RTCZero rtc;
 float thermocoupleTemps[batchSize];
 float coldJunctionTemps[batchSize];
 long timeStamps[batchSize];
@@ -38,6 +40,7 @@ Adafruit_MAX31856 max = Adafruit_MAX31856(10, 11, 12, 13);
 void setup() {
   establishSerialConnection();
   connectToWifi();
+  establishTime();
   startThermocouple();
 }
 
@@ -54,6 +57,29 @@ void establishSerialConnection() {
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
   }  
+}
+
+void establishTime() {
+  rtc.begin();
+  unsigned long epoch;
+  int numberOfTries = 0, maxTries = 6;
+  do {
+    epoch = WiFi.getTime();
+    numberOfTries++;
+  }
+  while ((epoch == 0) || (numberOfTries > maxTries));
+
+  if (numberOfTries > maxTries) {
+    Serial.print("NTP unreachable!!");
+    while (1);
+  }
+  else {
+    Serial.print("Epoch received: ");
+    Serial.println(epoch);
+    rtc.setEpoch(epoch);
+
+    Serial.println();
+  }
 }
 
 void connectToWifi() {
@@ -114,7 +140,7 @@ void readThermoCouple() {
 
   thermocoupleTemps[nextIndex] = max.readThermocoupleTemperature();
   coldJunctionTemps[nextIndex] = max.readCJTemperature();
-  timeStamps[nextIndex] = 123456789;
+  timeStamps[nextIndex] = rtc.getEpoch();
   nextIndex++;
 }
 
