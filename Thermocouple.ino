@@ -16,6 +16,7 @@ const char ssid[] = "Baer";
 const char pass[] = "antelope";
 const int batchSize = 5;
 const int readingInterval = 30000;
+const bool enableLogging = false;
 
 RTCZero rtc;
 float thermocoupleTemps[batchSize];
@@ -26,8 +27,8 @@ int nextIndex = 0;
 int status = WL_IDLE_STATUS;
 // if you don't want to use DNS (and reduce your sketch size)
 // use the numeric IP instead of the name for the server:
-IPAddress server(192,168,0,20);  // numeric IP for Google (no DNS)
-//char server[] = "www.google.com";    // name address for Google (using DNS)
+//IPAddress server(192,168,0,20);  // numeric IP for Google (no DNS)
+char server[] = "ec2-54-149-249-84.us-west-2.compute.amazonaws.com";
 
 // Initialize the Ethernet client library
 // with the IP address and port of the server
@@ -52,11 +53,13 @@ void loop() {
 }
 
 void establishSerialConnection() {
-  //Initialize serial and wait for port to open:
-  Serial.begin(115200);
-  while (!Serial) {
-    ; // wait for serial port to connect. Needed for native USB port only
-  }  
+  if(enableLogging) {
+    //Initialize serial and wait for port to open:
+    Serial.begin(115200);
+    while (!Serial) {
+      ; // wait for serial port to connect. Needed for native USB port only
+    }  
+  }
 }
 
 void establishTime() {
@@ -70,33 +73,33 @@ void establishTime() {
   while ((epoch == 0) || (numberOfTries > maxTries));
 
   if (numberOfTries > maxTries) {
-    Serial.print("NTP unreachable!!");
+    log("NTP unreachable!!");
     while (1);
   }
   else {
-    Serial.print("Epoch received: ");
-    Serial.println(epoch);
+    log("Epoch received: ");
+    logln(epoch);
     rtc.setEpoch(epoch);
 
-    Serial.println();
+    logln();
   }
 }
 
 void connectToWifi() {
   if (WiFi.status() == WL_NO_SHIELD) {
-    Serial.println("WiFi shield not present");
+    logln("WiFi shield not present");
     while (true); // don't continue:
   }
   
   // attempt to connect to Wifi network:
   while (status != WL_CONNECTED) {
-    Serial.print("Attempting to connect to SSID: ");
-    Serial.println(ssid);
+    log("Attempting to connect to SSID: ");
+    logln(ssid);
     status = WiFi.begin(ssid, pass);
     // wait 10 seconds for connection:
     delay(10000);
   }
-  Serial.println("Connected to wifi");
+  logln("Connected to wifi");
   printWifiStatus();
 }
 
@@ -104,38 +107,38 @@ void startThermocouple() {
   max.begin();
   max.setThermocoupleType(MAX31856_TCTYPE_K);
 
-  Serial.print("Thermocouple type: ");
+  log("Thermocouple type: ");
   switch ( max.getThermocoupleType() ) {
-    case MAX31856_TCTYPE_B: Serial.println("B Type"); break;
-    case MAX31856_TCTYPE_E: Serial.println("E Type"); break;
-    case MAX31856_TCTYPE_J: Serial.println("J Type"); break;
-    case MAX31856_TCTYPE_K: Serial.println("K Type"); break;
-    case MAX31856_TCTYPE_N: Serial.println("N Type"); break;
-    case MAX31856_TCTYPE_R: Serial.println("R Type"); break;
-    case MAX31856_TCTYPE_S: Serial.println("S Type"); break;
-    case MAX31856_TCTYPE_T: Serial.println("T Type"); break;
-    case MAX31856_VMODE_G8: Serial.println("Voltage x8 Gain mode"); break;
-    case MAX31856_VMODE_G32: Serial.println("Voltage x8 Gain mode"); break;
-    default: Serial.println("Unknown"); break;
+    case MAX31856_TCTYPE_B: logln("B Type"); break;
+    case MAX31856_TCTYPE_E: logln("E Type"); break;
+    case MAX31856_TCTYPE_J: logln("J Type"); break;
+    case MAX31856_TCTYPE_K: logln("K Type"); break;
+    case MAX31856_TCTYPE_N: logln("N Type"); break;
+    case MAX31856_TCTYPE_R: logln("R Type"); break;
+    case MAX31856_TCTYPE_S: logln("S Type"); break;
+    case MAX31856_TCTYPE_T: logln("T Type"); break;
+    case MAX31856_VMODE_G8: logln("Voltage x8 Gain mode"); break;
+    case MAX31856_VMODE_G32: logln("Voltage x8 Gain mode"); break;
+    default: logln("Unknown"); break;
   }
 }
 
 void readThermoCouple() {
-  Serial.print("Taking Reading Number ");
-  Serial.println(nextIndex + 1);
-  Serial.print("Cold Junction Temp: "); Serial.println(max.readCJTemperature());
-  Serial.print("Thermocouple Temp: "); Serial.println(max.readThermocoupleTemperature());
+  log("Taking Reading Number ");
+  logln(nextIndex + 1);
+  log("Cold Junction Temp: "); logln(max.readCJTemperature());
+  log("Thermocouple Temp: "); logln(max.readThermocoupleTemperature());
   // Check and print any faults
   uint8_t fault = max.readFault();
   if (fault) {
-    if (fault & MAX31856_FAULT_CJRANGE) Serial.println("Cold Junction Range Fault");
-    if (fault & MAX31856_FAULT_TCRANGE) Serial.println("Thermocouple Range Fault");
-    if (fault & MAX31856_FAULT_CJHIGH)  Serial.println("Cold Junction High Fault");
-    if (fault & MAX31856_FAULT_CJLOW)   Serial.println("Cold Junction Low Fault");
-    if (fault & MAX31856_FAULT_TCHIGH)  Serial.println("Thermocouple High Fault");
-    if (fault & MAX31856_FAULT_TCLOW)   Serial.println("Thermocouple Low Fault");
-    if (fault & MAX31856_FAULT_OVUV)    Serial.println("Over/Under Voltage Fault");
-    if (fault & MAX31856_FAULT_OPEN)    Serial.println("Thermocouple Open Fault");
+    if (fault & MAX31856_FAULT_CJRANGE) logln("Cold Junction Range Fault");
+    if (fault & MAX31856_FAULT_TCRANGE) logln("Thermocouple Range Fault");
+    if (fault & MAX31856_FAULT_CJHIGH)  logln("Cold Junction High Fault");
+    if (fault & MAX31856_FAULT_CJLOW)   logln("Cold Junction Low Fault");
+    if (fault & MAX31856_FAULT_TCHIGH)  logln("Thermocouple High Fault");
+    if (fault & MAX31856_FAULT_TCLOW)   logln("Thermocouple Low Fault");
+    if (fault & MAX31856_FAULT_OVUV)    logln("Over/Under Voltage Fault");
+    if (fault & MAX31856_FAULT_OPEN)    logln("Thermocouple Open Fault");
   }
 
   thermocoupleTemps[nextIndex] = max.readThermocoupleTemperature();
@@ -146,9 +149,9 @@ void readThermoCouple() {
 
 void publishReadingsIfReady() {
   if(nextIndex == batchSize) {
-    Serial.print("\nPublishing ");
-    Serial.print(batchSize);
-    Serial.print(" readings.");
+    log("\nPublishing ");
+    log(batchSize);
+    log(" readings.");
     sendReadings();
     nextIndex = 0;
   }
@@ -165,10 +168,10 @@ void readClientData() {
 
 void sendReadings() {
   client.stop();
-  Serial.println("\nStarting connection to server...");
+  logln("\nStarting connection to server...");
   // if you get a connection, report back via serial:
-  if (client.connect(server, 9000)) {
-    Serial.println("connected to server");
+  if (client.connect(server, 80)) {
+    logln("connected to server");
 
     StaticJsonBuffer<500> jsonBuffer;
     JsonArray& jsonReadings = jsonBuffer.createArray();
@@ -182,33 +185,58 @@ void sendReadings() {
 
     String readingsString;
     jsonReadings.printTo(readingsString);
-    Serial.println("Sending json: " + readingsString);
+    logln("Sending json: " + readingsString);
 
     client.println("POST /hob/bubba/put HTTP/1.1");
-    client.println("Host: 192.168.0.20");
+    client.println("Host: ec2-54-149-249-84.us-west-2.compute.amazonaws.com");
     client.println("Connection: close");
     client.println("Content-Type: application/json");
     client.print("Content-Length: "); client.println(readingsString.length());
     client.println();
     client.println(readingsString);
   }else{
-    Serial.println("\nSkipping send.  Put request already pending.");
+    logln("\nSkipping send.  Put request already pending.");
   }
 }
 
 void printWifiStatus() {
   // print the SSID of the network you're attached to:
-  Serial.print("SSID: ");
-  Serial.println(WiFi.SSID());
+  log("SSID: ");
+  logln(WiFi.SSID());
 
   // print your WiFi shield's IP address:
   IPAddress ip = WiFi.localIP();
-  Serial.print("IP Address: ");
-  Serial.println(ip);
+  log("IP Address: ");
+  logln(ip);
 
   // print the received signal strength:
   long rssi = WiFi.RSSI();
-  Serial.print("signal strength (RSSI):");
-  Serial.print(rssi);
-  Serial.println(" dBm");
+  log("signal strength (RSSI):");
+  log(rssi);
+  logln(" dBm");
 }
+
+void log(String message) {
+  if(enableLogging) {
+    Serial.print(message);
+  }
+}
+
+void logln(String message) {
+  if(enableLogging) {
+    Serial.println(message);
+  }
+}
+
+void logln(int message) {
+  if(enableLogging) {
+    Serial.println(message);
+  }
+}
+
+void logln() {
+  if(enableLogging) {
+    Serial.println();
+  }
+}
+
