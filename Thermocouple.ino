@@ -1,6 +1,6 @@
 /*
  Thermocouple Client
-
+*
  This sketch connects takes readings from a thermocouple amplifier,
  batches them and periodically POSTS them to a waiting service using
  a WiFiClient
@@ -8,47 +8,61 @@
 
 #include <SPI.h>
 #include <WiFi101.h>
-#include <RTCZero.h>
 #include <Adafruit_MAX31856.h>
 #include <ArduinoJson.h>
 
-const char ssid[] = "Baer";
-const char pass[] = "antelope";
-const int batchSize = 5;
+const char ssid[] = "Brian Spillane's Network";
+const char pass[] = "wainscotting";
+const String user = "brian";
+const String unit = "dutch";
 const int readingInterval = 30000;
 const bool enableLogging = false;
 
-RTCZero rtc;
-float thermocoupleTemps[batchSize];
-float coldJunctionTemps[batchSize];
-long timeStamps[batchSize];
-
-int nextIndex = 0;
 int status = WL_IDLE_STATUS;
 // if you don't want to use DNS (and reduce your sketch size)
 // use the numeric IP instead of the name for the server:
-//IPAddress server(192,168,0,20);  // numeric IP for Google (no DNS)
-char server[] = "ec2-54-149-249-84.us-west-2.compute.amazonaws.com";
+//IPAddress server(192,168,0,27);  // numeric IP for Google (no DNS)
+//int serverPort = 9000;
+
+const char hostString[] = "Host: zsz5ychlqi.execute-api.us-east-1.amazonaws.com";
+const String resetRequest = "POST /prod/" + user + "/" + unit + "/reset HTTP/1.1";
+const String sendReadingRequest = "POST /prod/" + user + "/" + unit + "/readings/create HTTP/1.1";
+const char connectionClose[] = "Connection: close";
+
+char server[] = "zsz5ychlqi.execute-api.us-east-1.amazonaws.com";
+int serverPort = 443;
+
+float thermocoupleTemp = 0;
+float coldJunctionTemp = 0;
 
 // Initialize the Ethernet client library
 // with the IP address and port of the server
 // that you want to connect to (port 80 is default for HTTP):
-WiFiClient client;
+WiFiSSLClient client;
 
 // Initialize the thermocouple amplifier
-Adafruit_MAX31856 max = Adafruit_MAX31856(10, 11, 12, 13);
+Adafruit_MAX31856 max = Adafruit_MAX31856(13, 12, 11, 10);
 
 void setup() {
   establishSerialConnection();
   connectToWifi();
-  establishTime();
+  sendReset();
+  while(client.connected()) {
+    logln("client is connected - resetting");
+    readClientData();
+    delay(1000);
+  }
   startThermocouple();
 }
 
 void loop() {
   readThermoCouple();
-  publishReadingsIfReady();
-  readClientData();
+  publishReadings();
+  while(client.connected()) {
+    logln("client is connected - publishing");
+    readClientData();
+    delay(1000);
+  }
   delay(readingInterval);
 }
 
@@ -59,29 +73,6 @@ void establishSerialConnection() {
     while (!Serial) {
       ; // wait for serial port to connect. Needed for native USB port only
     }  
-  }
-}
-
-void establishTime() {
-  rtc.begin();
-  unsigned long epoch;
-  int numberOfTries = 0, maxTries = 6;
-  do {
-    epoch = WiFi.getTime();
-    numberOfTries++;
-  }
-  while ((epoch == 0) || (numberOfTries > maxTries));
-
-  if (numberOfTries > maxTries) {
-    log("NTP unreachable!!");
-    while (1);
-  }
-  else {
-    log("Epoch received: ");
-    logln(epoch);
-    rtc.setEpoch(epoch);
-
-    logln();
   }
 }
 
@@ -106,28 +97,9 @@ void connectToWifi() {
 void startThermocouple() {
   max.begin();
   max.setThermocoupleType(MAX31856_TCTYPE_K);
-
-  log("Thermocouple type: ");
-  switch ( max.getThermocoupleType() ) {
-    case MAX31856_TCTYPE_B: logln("B Type"); break;
-    case MAX31856_TCTYPE_E: logln("E Type"); break;
-    case MAX31856_TCTYPE_J: logln("J Type"); break;
-    case MAX31856_TCTYPE_K: logln("K Type"); break;
-    case MAX31856_TCTYPE_N: logln("N Type"); break;
-    case MAX31856_TCTYPE_R: logln("R Type"); break;
-    case MAX31856_TCTYPE_S: logln("S Type"); break;
-    case MAX31856_TCTYPE_T: logln("T Type"); break;
-    case MAX31856_VMODE_G8: logln("Voltage x8 Gain mode"); break;
-    case MAX31856_VMODE_G32: logln("Voltage x8 Gain mode"); break;
-    default: logln("Unknown"); break;
-  }
 }
 
 void readThermoCouple() {
-  log("Taking Reading Number ");
-  logln(nextIndex + 1);
-  log("Cold Junction Temp: "); logln(max.readCJTemperature());
-  log("Thermocouple Temp: "); logln(max.readThermocoupleTemperature());
   // Check and print any faults
   uint8_t fault = max.readFault();
   if (fault) {
@@ -141,19 +113,36 @@ void readThermoCouple() {
     if (fault & MAX31856_FAULT_OPEN)    logln("Thermocouple Open Fault");
   }
 
-  thermocoupleTemps[nextIndex] = max.readThermocoupleTemperature();
-  coldJunctionTemps[nextIndex] = max.readCJTemperature();
-  timeStamps[nextIndex] = rtc.getEpoch();
-  nextIndex++;
+  logln("---Taking Reading---");
+  thermocoupleTemp = max.readThermocoupleTemperature();
+  log("Thermocouple Temp: "); logln(thermocoupleTemp);
+  coldJunctionTemp = max.readCJTemperature();
+  log("Cold Junction Temp: "); logln(coldJunctionTemp);
 }
 
-void publishReadingsIfReady() {
-  if(nextIndex == batchSize) {
-    log("\nPublishing ");
-    log(batchSize);
-    log(" readings.");
-    sendReadings();
-    nextIndex = 0;
+void publishReadings() {
+  client.stop();
+  logln("\nStarting connection to server...");
+  if (client.connect(server, serverPort)) {
+    logln("connected to server");
+    StaticJsonBuffer<500> jsonBuffer;
+    JsonObject& reading = jsonBuffer.createObject();
+    reading["t"] = thermocoupleTemp;
+    reading["c"] = coldJunctionTemp;
+
+    String readingString;
+    reading.printTo(readingString);
+    logln("Sending json: " + readingString + " to " + sendReadingRequest);
+    
+    client.println(sendReadingRequest);
+    client.println(hostString);
+    client.println(connectionClose);
+    client.println("Content-Type: application/json");
+    client.print("Content-Length: "); client.println(readingString.length());
+    client.println();
+    client.println(readingString);
+  }else{
+    logln("\nUnable to connect to server.  Skipping send.");
   }
 }
 
@@ -166,36 +155,27 @@ void readClientData() {
   }
 }
 
-void sendReadings() {
+void sendReset() {
   client.stop();
-  logln("\nStarting connection to server...");
-  // if you get a connection, report back via serial:
-  if (client.connect(server, 80)) {
+  logln("Starting new readings session");
+  if(client.connect(server, serverPort)) {
     logln("connected to server");
-
-    StaticJsonBuffer<500> jsonBuffer;
-    JsonArray& jsonReadings = jsonBuffer.createArray();
-    for(int i=0; i<batchSize; i++) {
-      JsonObject& reading = jsonBuffer.createObject();
-      reading["t"] = thermocoupleTemps[i];
-      reading["c"] = coldJunctionTemps[i];
-      reading["d"] = timeStamps[i];
-      jsonReadings.add(reading);
-    }
-
-    String readingsString;
-    jsonReadings.printTo(readingsString);
-    logln("Sending json: " + readingsString);
-
-    client.println("POST /hob/bubba/put HTTP/1.1");
-    client.println("Host: ec2-54-149-249-84.us-west-2.compute.amazonaws.com");
-    client.println("Connection: close");
+    
+    StaticJsonBuffer<200> jsonBuffer;
+    JsonObject& json = jsonBuffer.createObject();
+    String payload;
+    json.printTo(payload);
+    logln("Sending json: " + payload);
+    
+    client.println(resetRequest);
+    client.println(hostString);
+    client.println(connectionClose);
     client.println("Content-Type: application/json");
-    client.print("Content-Length: "); client.println(readingsString.length());
+    client.print("Content-Length: "); client.println(payload.length());
     client.println();
-    client.println(readingsString);
+    client.println(payload);
   }else{
-    logln("\nSkipping send.  Put request already pending.");
+    logln("\nUnable to connect to server. Session not reset.");
   }
 }
 
@@ -207,7 +187,7 @@ void printWifiStatus() {
   // print your WiFi shield's IP address:
   IPAddress ip = WiFi.localIP();
   log("IP Address: ");
-  logln(ip);
+  Serial.println(ip);
 
   // print the received signal strength:
   long rssi = WiFi.RSSI();
@@ -228,7 +208,7 @@ void logln(String message) {
   }
 }
 
-void logln(int message) {
+void logln(float message) {
   if(enableLogging) {
     Serial.println(message);
   }
@@ -240,3 +220,10 @@ void logln() {
   }
 }
 
+String twoDigits(int num) {
+  String two = "";
+  if (num < 10) {
+    two += "0";
+  }
+  return two + num;
+}
