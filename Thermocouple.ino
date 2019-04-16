@@ -12,9 +12,9 @@
 #include <ArduinoJson.h>
 
 const char ssid[] = "Brian Spillane's Network";
-const char pass[] = "wainscotting";
-const String user = "brian";
-const String unit = "dutch";
+const char pass[] = "";
+const String user = "";
+const String unit = "";
 const int readingInterval = 30000;
 const bool enableLogging = false;
 
